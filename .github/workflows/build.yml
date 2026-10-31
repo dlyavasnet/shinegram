@@ -1,0 +1,185 @@
+name: Build ShineGram
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "CPU architecture of the app"
+        type: choice
+        default: x86_64
+        options:
+          - x86_64
+          - arm64
+          - universal
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      ARCH_CHOICE: ${{ inputs.arch || 'x86_64' }}
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+    steps:
+      - name: Check API credentials
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          if [ -z "$TG_API_ID" ] || [ -z "$TG_API_HASH" ]; then
+            echo "::error::Add repository secrets TG_API_ID and TG_API_HASH (get them at https://my.telegram.org/apps)"
+            exit 1
+          fi
+          case "$TG_API_ID" in
+            *[!0-9]*) echo "::error::TG_API_ID must be a number"; exit 1 ;;
+          esac
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Apply ShineGram core patch
+        run: |
+          git -C submodules/telegram-ios apply --whitespace=nowarn "$GITHUB_WORKSPACE/shine/patches/telegram-ios.patch"
+          git -C submodules/telegram-ios status --short
+
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            XCODE=$(ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -1)
+          fi
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          MAJOR=$(xcodebuild -version | head -1 | awk '{print $2}' | cut -d. -f1)
+          if [ "$MAJOR" -ge 27 ]; then
+            sh scripts/xcode27.sh apply
+          fi
+          echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          "$HOME/.cargo/bin/rustup" target add x86_64-apple-darwin aarch64-apple-darwin || rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - name: Prepare build environment
+        run: sh scripts/setup_build_env.sh
+
+      - name: Restore native libraries cache
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            core-xprojects/*/build
+            packages/WalletEngine/wallet_engineFFI.xcframework
+          key: native-${{ runner.os }}-${{ hashFiles('.gitmodules', 'scripts/configure_frameworks.sh', 'scripts/framework-inputs.sh', 'core-xprojects/**/*.pbxproj') }}-${{ github.sha }}
+          restore-keys: |
+            native-${{ runner.os }}-${{ hashFiles('.gitmodules', 'scripts/configure_frameworks.sh', 'scripts/framework-inputs.sh', 'core-xprojects/**/*.pbxproj') }}-
+            native-${{ runner.os }}-
+
+      - name: Build native libraries
+        run: sh scripts/configure_frameworks.sh
+
+      - name: Save native libraries cache
+        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            core-xprojects/*/build
+            packages/WalletEngine/wallet_engineFFI.xcframework
+          key: native-${{ runner.os }}-${{ hashFiles('.gitmodules', 'scripts/configure_frameworks.sh', 'scripts/framework-inputs.sh', 'core-xprojects/**/*.pbxproj') }}-${{ github.sha }}
+
+      - name: Insert API credentials
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          CONFIG=packages/ApiCredentials/Sources/ApiCredentials/Config.swift
+          python3 - "$CONFIG" <<'EOF'
+          import os, re, sys
+          path = sys.argv[1]
+          s = open(path).read()
+          s, n1 = re.subn(r"(public static var apiId:\s*Int32\s*\{\s*return\s+)\d+", lambda m: m.group(1) + os.environ["TG_API_ID"], s, count=1)
+          s, n2 = re.subn(r'(public static var apiHash:\s*String\s*\{\s*return\s+")[0-9a-fA-F]+(")', lambda m: m.group(1) + os.environ["TG_API_HASH"] + m.group(2), s, count=1)
+          if n1 != 1 or n2 != 1:
+              sys.exit("could not insert API credentials into " + path)
+          open(path, "w").write(s)
+          EOF
+
+      - name: Build app
+        run: |
+          case "$ARCH_CHOICE" in
+            universal) ARCHS="arm64 x86_64" ;;
+            *) ARCHS="$ARCH_CHOICE" ;;
+          esac
+          mkdir -p build
+          set +e
+          xcodebuild build \
+            -workspace Telegram-Mac.xcworkspace \
+            -scheme Release \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -destination 'generic/platform=macOS' \
+            ARCHS="$ARCHS" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            > build/xcodebuild.log 2>&1
+          STATUS=$?
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)|\*\* " build/xcodebuild.log | head -200
+          exit $STATUS
+
+      - name: Package app
+        run: |
+          APP=$(find build/DerivedData/Build/Products/Release -maxdepth 1 -name "Telegram.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::Telegram.app not found in build products"
+            ls -la build/DerivedData/Build/Products/Release || true
+            exit 1
+          fi
+          mkdir -p dist
+          rm -rf dist/ShineGram.app
+          ditto "$APP" dist/ShineGram.app
+          codesign --force --deep --sign - dist/ShineGram.app
+          codesign --verify --deep --verbose=2 dist/ShineGram.app
+          lipo -archs dist/ShineGram.app/Contents/MacOS/Telegram
+          ditto -c -k --sequesterRsrc --keepParent dist/ShineGram.app "dist/ShineGram-${ARCH_CHOICE}.zip"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShineGram-${{ env.ARCH_CHOICE }}
+          path: dist/ShineGram-${{ env.ARCH_CHOICE }}.zip
+          retention-days: 14
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ShineGram-${{ env.ARCH_CHOICE }}.zip

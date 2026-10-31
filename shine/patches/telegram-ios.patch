@@ -1,0 +1,414 @@
+diff --git a/submodules/TelegramCore/Sources/Account/AccountManager.swift b/submodules/TelegramCore/Sources/Account/AccountManager.swift
+index bf906980..a06912b6 100644
+--- a/submodules/TelegramCore/Sources/Account/AccountManager.swift
++++ b/submodules/TelegramCore/Sources/Account/AccountManager.swift
+@@ -153,6 +153,8 @@ private var declaredEncodables: Void = {
+     declareEncodable(SecretFileMediaResource.self, f: { SecretFileMediaResource(decoder: $0) })
+     declareEncodable(CloudChatRemoveMessagesOperation.self, f: { CloudChatRemoveMessagesOperation(decoder: $0) })
+     declareEncodable(AutoremoveTimeoutMessageAttribute.self, f: { AutoremoveTimeoutMessageAttribute(decoder: $0) })
++    declareEncodable(ShineDeletedMessageAttribute.self, f: { ShineDeletedMessageAttribute(decoder: $0) })
++    declareEncodable(ShineEditHistoryMessageAttribute.self, f: { ShineEditHistoryMessageAttribute(decoder: $0) })
+     declareEncodable(AutoclearTimeoutMessageAttribute.self, f: { AutoclearTimeoutMessageAttribute(decoder: $0) })
+     declareEncodable(CloudChatRemoveChatOperation.self, f: { CloudChatRemoveChatOperation(decoder: $0) })
+     declareEncodable(SynchronizePinnedChatsOperation.self, f: { SynchronizePinnedChatsOperation(decoder: $0) })
+diff --git a/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift b/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift
+new file mode 100644
+index 00000000..ed4bedb8
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift
+@@ -0,0 +1,138 @@
++import Foundation
++import Postbox
++
++public final class ShineDeletedMessageAttribute: MessageAttribute, Equatable {
++    public let deletedAt: Int32
++
++    public init(deletedAt: Int32) {
++        self.deletedAt = deletedAt
++    }
++
++    required public init(decoder: PostboxDecoder) {
++        self.deletedAt = decoder.decodeInt32ForKey("d", orElse: 0)
++    }
++
++    public func encode(_ encoder: PostboxEncoder) {
++        encoder.encodeInt32(self.deletedAt, forKey: "d")
++    }
++
++    public static func ==(lhs: ShineDeletedMessageAttribute, rhs: ShineDeletedMessageAttribute) -> Bool {
++        return lhs.deletedAt == rhs.deletedAt
++    }
++}
++
++public struct ShineEditHistoryEntry: Equatable {
++    public let text: String
++    public let date: Int32
++
++    public init(text: String, date: Int32) {
++        self.text = text
++        self.date = date
++    }
++}
++
++public final class ShineEditHistoryMessageAttribute: MessageAttribute, Equatable {
++    public static let maxEntries = 50
++
++    public let entries: [ShineEditHistoryEntry]
++
++    public init(entries: [ShineEditHistoryEntry]) {
++        self.entries = entries
++    }
++
++    required public init(decoder: PostboxDecoder) {
++        let texts = decoder.decodeStringArrayForKey("t")
++        let dates = decoder.decodeInt32ArrayForKey("d")
++        var entries: [ShineEditHistoryEntry] = []
++        for (index, text) in texts.enumerated() {
++            entries.append(ShineEditHistoryEntry(text: text, date: index < dates.count ? dates[index] : 0))
++        }
++        self.entries = entries
++    }
++
++    public func encode(_ encoder: PostboxEncoder) {
++        encoder.encodeStringArray(self.entries.map { $0.text }, forKey: "t")
++        encoder.encodeInt32Array(self.entries.map { $0.date }, forKey: "d")
++    }
++
++    public func appending(_ entry: ShineEditHistoryEntry) -> ShineEditHistoryMessageAttribute {
++        var entries = self.entries
++        entries.append(entry)
++        if entries.count > ShineEditHistoryMessageAttribute.maxEntries {
++            entries.removeFirst(entries.count - ShineEditHistoryMessageAttribute.maxEntries)
++        }
++        return ShineEditHistoryMessageAttribute(entries: entries)
++    }
++
++    public static func ==(lhs: ShineEditHistoryMessageAttribute, rhs: ShineEditHistoryMessageAttribute) -> Bool {
++        return lhs.entries == rhs.entries
++    }
++}
++
++public extension Message {
++    var shineDeletedAttribute: ShineDeletedMessageAttribute? {
++        for attribute in self.attributes {
++            if let attribute = attribute as? ShineDeletedMessageAttribute {
++                return attribute
++            }
++        }
++        return nil
++    }
++
++    var shineEditHistory: ShineEditHistoryMessageAttribute? {
++        for attribute in self.attributes {
++            if let attribute = attribute as? ShineEditHistoryMessageAttribute {
++                return attribute
++            }
++        }
++        return nil
++    }
++}
++
++func shineStoreMessage(_ message: Message, attributes: [MessageAttribute]) -> StoreMessage {
++    var storeForwardInfo: StoreMessageForwardInfo?
++    if let forwardInfo = message.forwardInfo {
++        storeForwardInfo = StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
++    }
++    return StoreMessage(id: message.id, customStableId: nil, globallyUniqueId: message.globallyUniqueId, groupingKey: message.groupingKey, threadId: message.threadId, timestamp: message.timestamp, flags: StoreMessageFlags(message.flags), tags: message.tags, globalTags: message.globalTags, localTags: message.localTags, forwardInfo: storeForwardInfo, authorId: message.author?.id, text: message.text, attributes: attributes, media: message.media)
++}
++
++func shineMarkMessagesDeleted(transaction: Transaction, ids: [MessageId]) -> [MessageId] {
++    let timestamp = Int32(Date().timeIntervalSince1970)
++    var remaining: [MessageId] = []
++    for id in ids {
++        guard id.namespace == Namespaces.Message.Cloud, let message = transaction.getMessage(id), !message.flags.contains(.Unsent) else {
++            remaining.append(id)
++            continue
++        }
++        if message.shineDeletedAttribute != nil {
++            continue
++        }
++        transaction.updateMessage(id, update: { current in
++            var attributes = current.attributes
++            attributes.append(ShineDeletedMessageAttribute(deletedAt: timestamp))
++            return .update(shineStoreMessage(current, attributes: attributes))
++        })
++    }
++    return remaining
++}
++
++func shineAppendEditHistory(previous: Message, updated: StoreMessage) -> StoreMessage {
++    guard previous.text != updated.text, !previous.text.isEmpty else {
++        if let history = previous.shineEditHistory, !updated.attributes.contains(where: { $0 is ShineEditHistoryMessageAttribute }) {
++            return updated.withUpdatedAttributes(updated.attributes + [history])
++        }
++        return updated
++    }
++    var editDate = previous.timestamp
++    for attribute in previous.attributes {
++        if let attribute = attribute as? EditedMessageAttribute {
++            editDate = attribute.date
++        }
++    }
++    let entry = ShineEditHistoryEntry(text: previous.text, date: editDate)
++    let history = (previous.shineEditHistory ?? ShineEditHistoryMessageAttribute(entries: [])).appending(entry)
++    var attributes = updated.attributes.filter { !($0 is ShineEditHistoryMessageAttribute) }
++    attributes.append(history)
++    return updated.withUpdatedAttributes(attributes)
++}
+diff --git a/submodules/TelegramCore/Sources/Shine/ShineSettings.swift b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
+new file mode 100644
+index 00000000..f45cb67a
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
+@@ -0,0 +1,53 @@
++import Foundation
++
++public final class ShineSettings {
++    public enum Key: String, CaseIterable {
++        case ghostHideReadReceipts = "shine.ghost.hideReadReceipts"
++        case ghostHideOnline = "shine.ghost.hideOnline"
++        case ghostHideTyping = "shine.ghost.hideTyping"
++        case ghostHideStoryViews = "shine.ghost.hideStoryViews"
++        case ghostHideMediaListened = "shine.ghost.hideMediaListened"
++        case saveDeletedMessages = "shine.saveDeletedMessages"
++        case saveEditHistory = "shine.saveEditHistory"
++        case hideSponsoredMessages = "shine.hideSponsoredMessages"
++    }
++
++    public static let didChangeNotification = Notification.Name("ShineSettingsDidChange")
++
++    private static var defaults: UserDefaults {
++        return UserDefaults.standard
++    }
++
++    public static func value(_ key: Key) -> Bool {
++        return defaults.bool(forKey: key.rawValue)
++    }
++
++    public static func set(_ key: Key, _ value: Bool) {
++        defaults.set(value, forKey: key.rawValue)
++        NotificationCenter.default.post(name: didChangeNotification, object: nil)
++    }
++
++    public static var ghostKeys: [Key] {
++        return [.ghostHideReadReceipts, .ghostHideOnline, .ghostHideTyping, .ghostHideStoryViews, .ghostHideMediaListened]
++    }
++
++    public static var isGhostModeEnabled: Bool {
++        return ghostKeys.allSatisfy { value($0) }
++    }
++
++    public static func setGhostMode(_ enabled: Bool) {
++        for key in ghostKeys {
++            defaults.set(enabled, forKey: key.rawValue)
++        }
++        NotificationCenter.default.post(name: didChangeNotification, object: nil)
++    }
++
++    public static var hideReadReceipts: Bool { value(.ghostHideReadReceipts) }
++    public static var hideOnline: Bool { value(.ghostHideOnline) }
++    public static var hideTyping: Bool { value(.ghostHideTyping) }
++    public static var hideStoryViews: Bool { value(.ghostHideStoryViews) }
++    public static var hideMediaListened: Bool { value(.ghostHideMediaListened) }
++    public static var saveDeletedMessages: Bool { value(.saveDeletedMessages) }
++    public static var saveEditHistory: Bool { value(.saveEditHistory) }
++    public static var hideSponsoredMessages: Bool { value(.hideSponsoredMessages) }
++}
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+index 3d99e59d..bba16fd0 100644
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4622,6 +4622,14 @@ func replayFinalState(
+             case let .DeleteEphemeralMessages(peerId, ids):
+                 deleteEphemeralMessages(transaction: transaction, peerId: peerId, ids: ids)
+             case let .DeleteMessagesWithGlobalIds(ids):
++                var ids = ids
++                if ShineSettings.saveDeletedMessages {
++                    let messageIds = transaction.messageIdsForGlobalIds(ids)
++                    let kept = Set(messageIds).subtracting(shineMarkMessagesDeleted(transaction: transaction, ids: messageIds))
++                    ids = ids.filter { globalId in
++                        return !transaction.messageIdsForGlobalIds([globalId]).contains(where: { kept.contains($0) })
++                    }
++                }
+                 var resourceIds: [MediaResourceId] = []
+                 transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+                     addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+@@ -4630,7 +4638,10 @@ func replayFinalState(
+                     let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
+                 }
+                 deletedMessageIds.append(contentsOf: ids.map { .global($0) })
+-            case let .DeleteMessages(ids):
++            case var .DeleteMessages(ids):
++                if ShineSettings.saveDeletedMessages {
++                    ids = shineMarkMessagesDeleted(transaction: transaction, ids: ids)
++                }
+                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                 })
+@@ -4680,7 +4691,18 @@ func replayFinalState(
+                         generatedEvent = reactionGeneratedEvent(previousMessage.reactionsAttribute, message.reactionsAttribute, message: message, transaction: transaction)
+                     }
+                     
+-                    return .update(mergedServerMessageUpdate(previous: previousMessage, updated: message))
++                    let merged = mergedServerMessageUpdate(previous: previousMessage, updated: message)
++                    if ShineSettings.saveEditHistory || previousMessage.shineEditHistory != nil || previousMessage.shineDeletedAttribute != nil {
++                        var result = ShineSettings.saveEditHistory ? shineAppendEditHistory(previous: previousMessage, updated: merged) : merged
++                        if let deleted = previousMessage.shineDeletedAttribute, !result.attributes.contains(where: { $0 is ShineDeletedMessageAttribute }) {
++                            result = result.withUpdatedAttributes(result.attributes + [deleted])
++                        }
++                        if !ShineSettings.saveEditHistory, let history = previousMessage.shineEditHistory, !result.attributes.contains(where: { $0 is ShineEditHistoryMessageAttribute }) {
++                            result = result.withUpdatedAttributes(result.attributes + [history])
++                        }
++                        return .update(result)
++                    }
++                    return .update(merged)
+                 })
+                 if let generatedEvent = generatedEvent {
+                     addedReactionEvents.append(generatedEvent)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+index 7256668b..0f3f4526 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+@@ -44,7 +44,7 @@ private final class AccountPresenceManagerImpl {
+     
+     private func updatePresence(_ isOnline: Bool) {
+         let request: Signal<Api.Bool, MTRpcError>
+-        if isOnline {
++        if isOnline && !ShineSettings.hideOnline {
+             let timer = SignalKitTimer(timeout: 30.0, repeat: false, completion: { [weak self] in
+                 guard let strongSelf = self else {
+                     return
+diff --git a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+index e8e08874..943e87a8 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+@@ -175,6 +175,9 @@ private func requestActivity(postbox: Postbox, network: Network, accountPeerId:
+                 }
+             }
+             
++            if ShineSettings.hideTyping {
++                return .complete()
++            }
+             if let inputPeer = apiInputPeer(peer) {
+                 var flags: Int32 = 0
+                 let topMessageId = threadId.flatMap { Int32(clamping: $0) }
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
+index b5ede6a8..7882295c 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
+@@ -110,6 +110,9 @@ func managedSynchronizeConsumeMessageContentOperations(postbox: Postbox, network
+ }
+ 
+ private func synchronizeConsumeMessageContents(transaction: Transaction, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeConsumeMessageContentsOperation) -> Signal<Void, NoError> {
++    if ShineSettings.hideMediaListened {
++        return .complete()
++    }
+     if peerId.namespace == Namespaces.Peer.CloudUser || peerId.namespace == Namespaces.Peer.CloudGroup {
+         return network.request(Api.functions.messages.readMessageContents(id: operation.messageIds.map { $0.id }))
+         |> map(Optional.init)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
+index e38c0f96..4c459438 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeViewStoriesOperations.swift
+@@ -119,6 +119,9 @@ func managedSynchronizeViewStoriesOperations(postbox: Postbox, network: Network,
+ }
+ 
+ private func pushStoriesAreSeen(postbox: Postbox, network: Network, stateManager: AccountStateManager, peer: Peer, operation: SynchronizeViewStoriesOperation) -> Signal<Void, NoError> {
++    if ShineSettings.hideStoryViews {
++        return .complete()
++    }
+     guard let inputPeer = apiInputPeer(peer) else {
+         return .complete()
+     }
+diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+index b2e65895..d48a67f6 100644
+--- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
++++ b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+@@ -252,6 +252,9 @@ private func validatePeerReadState(network: Network, postbox: Postbox, stateMana
+ }
+ 
+ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager: AccountStateManager, peerId: PeerId, readState: PeerReadState) -> Signal<PeerReadState, PeerReadStateValidationError> {
++    if ShineSettings.hideReadReceipts {
++        return .single(readState)
++    }
+     if peerId.namespace == Namespaces.Peer.SecretChat {
+         // Decide whether a request is needed before looking the peer up: inputSecretChat goes
+         // through loadedPeerWithId, which never emits when the peer row is missing and fails
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AdMessages.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AdMessages.swift
+index a8e5b04b..50f02d1c 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/AdMessages.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/AdMessages.swift
+@@ -491,7 +491,7 @@ private class AdMessagesHistoryContextImpl {
+             return transaction.getPeer(peerId).flatMap(apiInputPeer)
+         }
+         |> mapToSignal { inputPeer -> Signal<(interPostInterval: Int32?, startDelay: Int32?, betweenDelay: Int32?, messages: [Message]), NoError> in
+-            guard let inputPeer else {
++            guard let inputPeer, !ShineSettings.hideSponsoredMessages else {
+                 return .single((nil, nil, nil, []))
+             }
+             var flags: Int32 = 0
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+index 041f0e62..8da0bf2f 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
+@@ -219,7 +219,9 @@ func _internal_toggleForumThreadUnreadMarkInteractively(transaction: Transaction
+             
+             if peer.isForum {
+                 if let inputPeer = apiInputPeer(peer) {
+-                    let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
++                    if !ShineSettings.hideReadReceipts {
++                        let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
++                    }
+                 }
+             } else if peer.isMonoForum {
+                 if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
+@@ -255,7 +257,9 @@ func _internal_markForumThreadAsReadInteractively(transaction: Transaction, netw
+         
+         if peer.isForum {
+             if let inputPeer = apiInputPeer(peer) {
+-                let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
++                if !ShineSettings.hideReadReceipts {
++                    let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
++                }
+             }
+         } else if peer.isMonoForum {
+             if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer) {
+@@ -297,7 +301,9 @@ func _internal_togglePeerUnreadMarkInteractively(transaction: Transaction, netwo
+                 
+                 if peer.isForum {
+                     if let inputPeer = apiInputPeer(peer) {
+-                        let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: item.threadId), readMaxId: messageIndex.id.id)).start()
++                        if !ShineSettings.hideReadReceipts {
++                            let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: item.threadId), readMaxId: messageIndex.id.id)).start()
++                        }
+                     }
+                 } else if peer.isMonoForum {
+                     if let inputPeer = apiInputPeer(peer), let subPeer = transaction.getPeer(PeerId(item.threadId)).flatMap(apiInputPeer) {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+index 5c0a9101..ab8ea875 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift
+@@ -477,7 +477,8 @@ private class ReplyThreadHistoryContextImpl {
+                 }
+             }
+ 
+-            if let subPeerId {
++            if ShineSettings.hideReadReceipts {
++            } else if let subPeerId {
+                 let signal = strongSelf.account.network.request(Api.functions.messages.readSavedHistory(parentPeer: inputPeer, peer: subPeerId, maxId: messageIndex.id.id))
+                 |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                     return .single(.boolFalse)
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+index 9878c79e..c4534df3 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+@@ -2086,6 +2086,9 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
+             }
+             #endif
+             
++            if ShineSettings.hideStoryViews {
++                return .complete()
++            }
+             return account.network.request(Api.functions.stories.incrementStoryViews(peer: inputPeer, id: [id]))
+             |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                 return .single(.boolFalse)
