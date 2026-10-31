@@ -22,12 +22,6 @@
 [submodule "submodules/regex"]
 	path = submodules/regex
 	url = https://github.com/boostorg/regex
-[submodule "third-party/twidget"]
-	path = third-party/twidget
-	url = https://github.com/TelegramMessenger/twidget
 [submodule "submodules/tlottie"]
 	path = submodules/tlottie
 	url = https://github.com/dkaraush/tlottie
-[submodule "third-party/widget-sandbox"]
-	path = third-party/widget-sandbox
-	url = https://github.com/TelegramMessenger/widget-sandbox
