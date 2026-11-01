@@ -217,6 +217,9 @@ public enum ShineRuntime {
         observers.append(center.addObserver(forName: ShineSettings.didChangeNotification, object: nil, queue: .main, using: { _ in
             applyStreamerMode()
         }))
+        observers.append(center.addObserver(forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main, using: { _ in
+            applyStreamerMode()
+        }))
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: { notification in
             if let window = notification.object as? NSWindow {
                 apply(to: window)
@@ -227,7 +230,6 @@ public enum ShineRuntime {
                 apply(to: window)
             }
         }))
-        applyStreamerMode()
     }
 
     private static func apply(to window: NSWindow) {
@@ -238,7 +240,10 @@ public enum ShineRuntime {
     }
 
     private static func applyStreamerMode() {
-        for window in NSApp.windows {
+        guard let app = NSApp else {
+            return
+        }
+        for window in app.windows {
             apply(to: window)
         }
     }
