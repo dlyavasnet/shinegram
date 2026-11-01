@@ -22,6 +22,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
+    permissions:
+      contents: write
     timeout-minutes: 360
     env:
       ARCH_CHOICE: ${{ inputs.arch || 'x86_64' }}
@@ -161,12 +163,15 @@ jobs:
           codesign --verify --deep --verbose=2 dist/ShineGram.app
           lipo -archs dist/ShineGram.app/Contents/MacOS/Telegram
           ditto -c -k --sequesterRsrc --keepParent dist/ShineGram.app "dist/ShineGram-${ARCH_CHOICE}.zip"
+          bash shine/dmg/make-dmg.sh dist/ShineGram.app "dist/ShineGram-${ARCH_CHOICE}.dmg"
 
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
           name: ShineGram-${{ env.ARCH_CHOICE }}
-          path: dist/ShineGram-${{ env.ARCH_CHOICE }}.zip
+          path: |
+            dist/ShineGram-${{ env.ARCH_CHOICE }}.dmg
+            dist/ShineGram-${{ env.ARCH_CHOICE }}.zip
           retention-days: 14
 
       - name: Upload build log
@@ -182,4 +187,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ShineGram-${{ env.ARCH_CHOICE }}.zip
+          name: ShineGram ${{ github.ref_name }}
+          files: |
+            dist/ShineGram-${{ env.ARCH_CHOICE }}.dmg
+            dist/ShineGram-${{ env.ARCH_CHOICE }}.zip
