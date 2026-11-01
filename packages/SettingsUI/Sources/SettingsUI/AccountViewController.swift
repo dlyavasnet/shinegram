@@ -149,6 +149,7 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
     case attach(index: Int, AttachMenuBot, viewType: GeneralViewType)
     case general(index: Int, viewType: GeneralViewType)
     case shine(index: Int, viewType: GeneralViewType)
+    case shineChannel(index: Int, viewType: GeneralViewType)
     case stickers(index: Int, viewType: GeneralViewType)
     case notifications(index: Int, viewType: GeneralViewType, status: NotificationAuthorizationStatus)
     case language(index: Int, viewType: GeneralViewType, current: String)
@@ -193,6 +194,8 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
             return .index(7)
         case .shine:
             return .index(998)
+        case .shineChannel:
+            return .index(997)
         case .proxy:
             return .index(8)
         case .notifications:
@@ -263,6 +266,8 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
         case let  .general(index, _):
             return index
         case let .shine(index, _):
+            return index
+        case let .shineChannel(index, _):
             return index
         case let  .proxy(index, _, _):
             return index
@@ -370,8 +375,14 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
                 arguments.presentController(GeneralSettingsViewController(arguments.context), true)
             }, inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
         case let .shine(_, viewType):
-            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: "ShineGram", icon: theme.icons.settingsGeneral, activeIcon: theme.icons.settingsGeneralActive, type: .next, viewType: viewType, action: {
+            let icon = shineSettingsIcon(ShineAppIcons.selected, reference: theme.icons.settingsGeneral)
+            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: "ShineGram", icon: icon, activeIcon: icon, type: .next, viewType: viewType, action: {
                 arguments.presentController(ShineSettingsController(context: arguments.context), true)
+            }, inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
+        case let .shineChannel(_, viewType):
+            let icon = shineChannelIcon(reference: theme.icons.settingsGeneral)
+            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: shineLocalized("Creator's Channel", "Канал создателя"), icon: icon, activeIcon: icon, type: .context("@dlyavasnet"), viewType: viewType, action: {
+                ShineHooks.openLink?(ShineHooks.creatorChannelUrl, arguments.context)
             }, inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
         case let .stories(_, viewType):
             return GeneralInteractedRowItem(initialSize, stableId: stableId, name: strings().accountSettingsMyProfile, icon: theme.icons.settingsStories, activeIcon: theme.icons.settingsStoriesActive, type: .next, viewType: viewType, action: {
@@ -660,6 +671,8 @@ private func accountInfoEntries<Context: AccountContextProtocol>(peerView:PeerVi
     index += 1
     
     entries.append(.shine(index: index, viewType: .singleItem))
+    index += 1
+    entries.append(.shineChannel(index: index, viewType: .singleItem))
     index += 1
     entries.append(.general(index: index, viewType: .singleItem))
     index += 1

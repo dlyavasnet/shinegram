@@ -399,6 +399,16 @@ func installSettingsUIHooks() {
         StoryModalController.ShowStories(context: context, isHidden: isHidden, initialId: initialId, singlePeer: singlePeer)
     }
     SettingsHooks.install(hooks)
+    ShineHooks.openLink = { url, context in
+        guard let context = context as? AccountContext else {
+            return
+        }
+        let link = inApp(for: url as NSString, context: context, openInfo: { peerId, _, _, action in
+            context.bindings.rootNavigation().push(ChatController(context: context, chatLocation: .peer(peerId), initialAction: action))
+        })
+        execute(inapp: link)
+    }
+    ShineRuntime.start()
 }
 
 private func mapSettingsPremiumSource(_ source: SettingsPremiumSource) -> PremiumLogEventsSource {

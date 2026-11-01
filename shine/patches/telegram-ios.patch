@@ -198,10 +198,10 @@ index 00000000..914a39b0
 +}
 diff --git a/submodules/TelegramCore/Sources/Shine/ShineSettings.swift b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
 new file mode 100644
-index 00000000..05337ef9
+index 00000000..2e064488
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,89 @@
 +import Foundation
 +
 +public final class ShineSettings {
@@ -215,6 +215,22 @@ index 00000000..05337ef9
 +        case saveDeletedMessages = "shine.saveDeletedMessages"
 +        case saveEditHistory = "shine.saveEditHistory"
 +        case hideSponsoredMessages = "shine.hideSponsoredMessages"
++        case streamerMode = "shine.streamerMode"
++        case hideStories = "shine.hideStories"
++        case showMessageSeconds = "shine.showMessageSeconds"
++        case showIds = "shine.showIds"
++    }
++
++    public static let appIconKey = "shine.appIcon"
++
++    public static var appIcon: String? {
++        get {
++            return defaults.string(forKey: appIconKey)
++        }
++        set {
++            defaults.set(newValue, forKey: appIconKey)
++            NotificationCenter.default.post(name: didChangeNotification, object: nil)
++        }
 +    }
 +
 +    public static let didChangeNotification = Notification.Name("ShineSettingsDidChange")
@@ -227,7 +243,7 @@ index 00000000..05337ef9
 +
 +    public static func defaultValue(_ key: Key) -> Bool {
 +        switch key {
-+        case .saveDeletedMessages:
++        case .saveDeletedMessages, .saveEditHistory, .hideSponsoredMessages, .showIds:
 +            return true
 +        default:
 +            return false
@@ -270,6 +286,10 @@ index 00000000..05337ef9
 +    public static var saveDeletedMessages: Bool { value(.saveDeletedMessages) }
 +    public static var saveEditHistory: Bool { value(.saveEditHistory) }
 +    public static var hideSponsoredMessages: Bool { value(.hideSponsoredMessages) }
++    public static var streamerMode: Bool { value(.streamerMode) }
++    public static var hideStories: Bool { value(.hideStories) }
++    public static var showMessageSeconds: Bool { value(.showMessageSeconds) }
++    public static var showIds: Bool { value(.showIds) }
 +}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 index 3d99e59d..bba16fd0 100644

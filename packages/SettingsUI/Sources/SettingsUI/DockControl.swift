@@ -96,7 +96,7 @@ public final class DockControl {
             self.applyResource.set(nil)
 
             guard let selected = settings.iconSelected, selected != TelegramApplicationIcons.Icon.defaultIconName else {
-                Dock.setCustomAppIcon(path: nil)
+                ShineAppIcons.applySelected()
                 return
             }
             if let icon = icons.icons.first(where: { $0.file.fileName == selected }) {

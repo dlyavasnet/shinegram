@@ -1608,9 +1608,36 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
         }
 
         if !isService, let history = message.shineEditHistory, !history.entries.isEmpty {
-            sevenBlock.append(ContextMenuItem("Edit History (\(history.entries.count))", handler: {
+            sevenBlock.append(ContextMenuItem(shineLocalized("Edit History", "История изменений") + " (\(history.entries.count))", handler: {
                 showModal(with: ShineEditHistoryModalController(context: context, message: message), for: context.window)
-            }, itemImage: MenuAnimation.menu_edited.value)) //TODOLANG
+            }, itemImage: MenuAnimation.menu_edited.value))
+        }
+
+        if ShineSettings.showIds {
+            let copyId: (String) -> Void = { value in
+                copyToClipboard(value)
+                showModalText(for: context.window, text: strings().contextAlertCopied)
+            }
+            let idsMenu = ContextMenu()
+            let chatId = shineBotApiId(message.id.peerId)
+            idsMenu.addItem(ContextMenuItem(shineLocalized("Chat ID", "ID чата") + ": \(chatId)", handler: {
+                copyId(chatId)
+            }))
+            if let author = message.author, author.id != message.id.peerId {
+                let authorId = shineBotApiId(author.id)
+                idsMenu.addItem(ContextMenuItem(shineLocalized("Sender ID", "ID отправителя") + ": \(authorId)", handler: {
+                    copyId(authorId)
+                }))
+            }
+            if message.id.namespace == Namespaces.Message.Cloud {
+                let messageId = "\(message.id.id)"
+                idsMenu.addItem(ContextMenuItem(shineLocalized("Message ID", "ID сообщения") + ": \(messageId)", handler: {
+                    copyId(messageId)
+                }))
+            }
+            let idsItem = ContextMenuItem(shineLocalized("Copy ID", "Копировать ID"), itemImage: MenuAnimation.menu_copy.value)
+            idsItem.submenu = idsMenu
+            sevenBlock.append(idsItem)
         }
         
         

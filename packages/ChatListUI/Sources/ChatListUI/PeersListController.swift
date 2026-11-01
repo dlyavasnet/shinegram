@@ -1069,6 +1069,7 @@ public class PeerListContainerView : Control {
     private var downloads: DownloadsControl?
     private var removalUndo: ChatRemovalUndoView?
     private var proxy: ProxyView?
+    private var shineGhost: ShineGhostButton?
     private var compose:ImageButton?
     private var backButton: ImageButton?
     private var glassContainer: NSView?
@@ -1338,6 +1339,21 @@ public class PeerListContainerView : Control {
         } else if let view = self.proxy {
             performSubviewRemoval(view, animated: animated)
             self.proxy = nil
+        }
+
+        if hasControls && !state.isContacts {
+            if self.shineGhost == nil {
+                controlPoint.x -= componentSize.width
+                let current = ShineGhostButton(frame: CGRect(origin: controlPoint, size: componentSize))
+                self.shineGhost = current
+                self.statusContainer.addSubview(current, positioned: .below, relativeTo: nil)
+                if animated {
+                    current.layer?.animateAlpha(from: 0, to: 1, duration: 0.2)
+                }
+            }
+        } else if let view = self.shineGhost {
+            performSubviewRemoval(view, animated: animated)
+            self.shineGhost = nil
         }
 
         glassContainer?.removeFromSuperview()
@@ -1631,6 +1647,9 @@ public class PeerListContainerView : Control {
         if let proxy = self.proxy {
             maxTitleWidth -= proxy.frame.width
         }
+        if let shineGhost = self.shineGhost {
+            maxTitleWidth -= shineGhost.frame.width
+        }
         
         self.titleView.updateState(state, arguments: arguments, communityTitle: self.communityTitle, maxWidth: maxTitleWidth, animated: transition.isAnimated)
         
@@ -1713,6 +1732,12 @@ public class PeerListContainerView : Control {
         }
         
         if let view = proxy {
+            controlPoint.x -= componentSize.width
+            transition.updateFrame(view: view, frame: CGRect(origin: controlPoint, size: componentSize))
+            transition.updateAlpha(view: view, alpha: progress)
+        }
+
+        if let view = shineGhost {
             controlPoint.x -= componentSize.width
             transition.updateFrame(view: view, frame: CGRect(origin: controlPoint, size: componentSize))
             transition.updateAlpha(view: view, alpha: progress)
@@ -2704,7 +2729,7 @@ open class PeersListController<Context: AccountContextProtocol>: TelegramGeneric
                 current.forumPeer = forumPeer
                 current.mode = mode
                 current.activities = inputActivities
-                current.stories = storyState
+                current.stories = ShineSettings.hideStories ? nil : storyState
                 current.appear = layout == .minimisize ? .normal : appearMode
                 current.isContacts = isContacts
                 current.presentation = appearance.presentation
