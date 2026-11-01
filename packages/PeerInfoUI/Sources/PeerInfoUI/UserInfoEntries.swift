@@ -1294,6 +1294,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
     case phoneNumber(sectionId:Int, index: Int, value: PhoneNumberWithLabel, canCopy: Bool, viewType: GeneralViewType)
     case notes(sectionId:Int, index: Int, value: CachedUserData.Note, viewType: GeneralViewType)
     case peerId(sectionId:Int, value: String, viewType: GeneralViewType)
+    case shineBadges(sectionId:Int, badges: [ShineBadge], viewType: GeneralViewType)
     case userName(sectionId:Int, value: [UserInfoAddress], viewType: GeneralViewType)
     case verifiedInfo(sectionId: Int, value: PeerVerification, viewType: GeneralViewType)
     case businessLocation(sectionId:Int, peer: EnginePeer, businessLocation: TelegramBusinessLocation, viewType: GeneralViewType)
@@ -1389,6 +1390,8 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
         case .notes(_, _, _, let viewType):
             return viewType
         case .peerId(_, _, let viewType):
+            return viewType
+        case .shineBadges(_, _, let viewType):
             return viewType
         case .userName(_, _, let viewType):
             return viewType
@@ -1496,6 +1499,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
         case let .userName(sectionId, value, _): return .userName(sectionId: sectionId, value: value, viewType: viewType)
         case let .verifiedInfo(sectionId, value, _): return .verifiedInfo(sectionId: sectionId, value: value, viewType: viewType)
         case let .peerId(sectionId, value, _): return .peerId(sectionId: sectionId, value: value, viewType: viewType)
+        case let .shineBadges(sectionId, badges, _): return .shineBadges(sectionId: sectionId, badges: badges, viewType: viewType)
         case let .businessLocation(sectionId, peer, location, _): return .businessLocation(sectionId: sectionId, peer: peer, businessLocation: location, viewType: viewType)
         case let .businessHours(sectionId, peer, businessHours, revealed, displayMyZone, _): return .businessHours(sectionId: sectionId, peer: peer, businessHours: businessHours, revealed: revealed, displayMyZone: displayMyZone, viewType: viewType)
         case let .reportReaction(sectionId, value, _): return .reportReaction(sectionId: sectionId, value: value, viewType: viewType)
@@ -1806,6 +1810,13 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             default:
                 return false
             }
+        case let .shineBadges(sectionId, badges, viewType):
+            switch entry {
+            case .shineBadges(sectionId, badges, viewType):
+                return true
+            default:
+                return false
+            }
         case let .businessLocation(sectionId, peer, location, viewType):
             switch entry {
             case .businessLocation(sectionId, peer: peer, businessLocation: location, viewType):
@@ -2105,6 +2116,8 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             return 125
         case .peerId:
             return 126
+        case .shineBadges:
+            return 146
         case .notes:
             return 127
         case .businessHours:
@@ -2237,6 +2250,8 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
         case let .verifiedInfo(sectionId, _, _):
             return (sectionId * 1000) + stableIndex
         case let .peerId(sectionId, _, _):
+            return (sectionId * 1000) + stableIndex
+        case let .shineBadges(sectionId, _, _):
             return (sectionId * 1000) + stableIndex
         case let .businessHours(sectionId, _, _, _, _, _):
             return (sectionId * 1000) + stableIndex
@@ -2481,6 +2496,7 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                     LinkHooks.shared.openExternalLink("https://fragment.com", false)
                 }, itemImage: MenuAnimation.menu_show_info.value, removeTail: false, overrideWidth: 200))
             }
+            let shineCanHide = canCopy
             return TextAndLabelItem(initialSize, stableId: stableId.hashValue, label:value.label, copyMenuText: strings().textCopyLabelPhoneNumber, text: PeerInfoUIHooks.shared.formatPhoneNumber(arguments.context, value.number), context: arguments.context, viewType: viewType, canCopy: canCopy, _copyToClipboard: {
                 
                 if value.number.hasPrefix("888") {
@@ -2488,7 +2504,9 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                 } else {
                     arguments.copy("+\(value.number)")
                 }
-            }, contextItems: items)
+            }, hideText: shineCanHide ? ShineSettings.isPhoneHidden : nil, toggleHide: shineCanHide && !ShineSettings.streamerMode ? {
+                ShineSettings.set(.hidePhone, !ShineSettings.value(.hidePhone))
+            } : nil, contextItems: items, blurText: true)
         case let .notes(_, _, value, viewType):
             return TextAndLabelItem(
                 initialSize,
@@ -2534,11 +2552,15 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
             
             return TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: strings().peerInfoUsername, copyMenuText: strings().textCopyLabelUsername, labelColor: theme.colors.text, text: text, context: arguments.context, viewType: viewType, detectLinks: true, isTextSelectable: true, _copyToClipboard: {
                 arguments.copy(link)
+            }, hideText: ShineSettings.isUsernameHidden, toggleHide: {
+                ShineSettings.set(.hideUsername, !ShineSettings.value(.hideUsername))
             }, linkInteractions: interactions, qrCode: { control in
                 arguments.openQrStudio(from: control)
-            })
+            }, blurText: true)
+        case let .shineBadges(_, badges, viewType):
+            return ShineBadgesRowItem(initialSize, stableId: stableId.hashValue, badges: badges, viewType: viewType)
         case let .peerId(_, value, viewType):
-            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
+            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)
             })
         case let .businessLocation(_, peer, location, viewType):
@@ -3082,10 +3104,17 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
                 
             }
             
-            if FastSettings.canViewPeerId, state.editingState == nil {
+            let shineIdVisible = FastSettings.canViewPeerId || ShineSettings.showIds
+            let shineBadgeList = ShineBadges.shared.badges(for: user.id.id._internalGetInt64Value())
+            if state.editingState == nil, shineIdVisible || !shineBadgeList.isEmpty {
                 entries.append(UserInfoEntry<Context>.section(sectionId: sectionId))
                 sectionId += 1
-                entries.append(UserInfoEntry<Context>.peerId(sectionId: sectionId, value: "\(user.id.id._internalGetInt64Value())", viewType: .singleItem))
+                if shineIdVisible {
+                    entries.append(UserInfoEntry<Context>.peerId(sectionId: sectionId, value: "\(user.id.id._internalGetInt64Value())", viewType: shineBadgeList.isEmpty ? .singleItem : .firstItem))
+                }
+                if !shineBadgeList.isEmpty {
+                    entries.append(UserInfoEntry<Context>.shineBadges(sectionId: sectionId, badges: shineBadgeList, viewType: shineIdVisible ? .lastItem : .singleItem))
+                }
             }
             
             if mediaTabsData.loaded && !mediaTabsData.collections.isEmpty, let controller = arguments.mediaController() {

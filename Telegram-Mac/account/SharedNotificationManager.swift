@@ -825,6 +825,9 @@ final class SharedNotificationManager : NSObject, NSUserNotificationCenterDelega
     }
     
     private func deliver(_ notification: NSUserNotification) {
+        if ShineSettings.streamerMode {
+            return
+        }
         _ = UNUserNotifications.authorizationStatus.start(next: { status in
             switch status {
             case .authorized:

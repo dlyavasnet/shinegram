@@ -70,7 +70,7 @@ public class AccountInfoItem: GeneralRowItem {
         self.titleActiveLayout = .init(activeTitle, maximumNumberOfLines: 1)
         
         if let phone = peer.phone {
-            _ = attr.append(string: SettingsHooks.shared.formatPhoneNumber(context, phone), color: theme.colors.grayText, font: .normal(.text))
+            _ = attr.append(string: ShineSettings.streamerPhone(SettingsHooks.shared.formatPhoneNumber(context, phone)), color: theme.colors.grayText, font: .normal(.text))
         }
         if let username = peer.username, !username.isEmpty {
             if !attr.string.isEmpty {

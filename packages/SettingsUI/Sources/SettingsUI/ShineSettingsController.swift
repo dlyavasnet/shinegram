@@ -95,7 +95,11 @@ private func title(_ key: ShineSettings.Key) -> String {
     case .showMessageSeconds:
         return shineLocalized("Show Seconds in Message Time", "Показывать секунды у сообщений")
     case .showIds:
-        return shineLocalized("Show Copy ID Actions", "Показывать «Копировать ID»")
+        return shineLocalized("Show IDs", "Показывать ID")
+    case .hidePhone:
+        return shineLocalized("Blur Phone Numbers in Profiles", "Размывать номера в профилях")
+    case .hideUsername:
+        return shineLocalized("Blur Usernames in Profiles", "Размывать юзернеймы в профилях")
     }
 }
 
@@ -151,8 +155,8 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
     sectionId += 1
 
     entries.append(header(shineLocalized("INTERFACE", "ИНТЕРФЕЙС"), sectionId: sectionId, index: &index))
-    entries.append(contentsOf: switches([.streamerMode, .hideStories, .showMessageSeconds, .showIds], state: state, arguments: arguments, sectionId: sectionId, index: &index))
-    entries.append(footer(shineLocalized("Streamer mode hides ShineGram windows from screenshots, screen recording and screen sharing.", "Режим стримера скрывает окна ShineGram со скриншотов, записи и демонстрации экрана."), sectionId: sectionId, index: &index))
+    entries.append(contentsOf: switches([.streamerMode, .hidePhone, .hideUsername, .hideStories, .showMessageSeconds, .showIds], state: state, arguments: arguments, sectionId: sectionId, index: &index))
+    entries.append(footer(shineLocalized("Streamer mode hides ShineGram windows from screenshots, screen recording and screen sharing, turns off notifications and hides everyone's phone numbers. The eye button next to a phone number or username in a profile blurs it; the choice is remembered.", "Режим стримера скрывает окна ShineGram со скриншотов, записи и демонстрации экрана, отключает уведомления и скрывает номера телефонов у всех. Кнопка с глазом рядом с номером или юзернеймом в профиле размывает его, выбор запоминается."), sectionId: sectionId, index: &index))
 
     entries.append(.sectionId(sectionId, type: .normal))
     sectionId += 1

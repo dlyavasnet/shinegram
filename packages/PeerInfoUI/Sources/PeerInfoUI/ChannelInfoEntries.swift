@@ -1158,7 +1158,7 @@ enum ChannelInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                 arguments.openQrStudio(from: control)
             })
         case let .peerId(_, value, viewType):
-            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
+            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)
             })
         case let .report(_, viewType):
@@ -1377,8 +1377,8 @@ func channelInfoEntries<Context: AccountContextProtocol>(view: PeerView, argumen
             if !usernames.isEmpty {
                 aboutBlock.append(.userName(sectionId: .desc, value: usernames, viewType: .singleItem))
             }
-            if FastSettings.canViewPeerId {
-                aboutBlock.append(.peerId(sectionId: .desc, value: "\(channel.id.id._internalGetInt64Value())", viewType: .singleItem))
+            if FastSettings.canViewPeerId || ShineSettings.showIds {
+                aboutBlock.append(.peerId(sectionId: .desc, value: "-100\(channel.id.id._internalGetInt64Value())", viewType: .singleItem))
             }
             applyBlock(aboutBlock)
             

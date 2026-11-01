@@ -53,11 +53,11 @@ public class ChatContactRowItem: ChatRowItem {
             if let peerId = contact.peerId {
                 let range = attr.append(string: name, font: .medium(.text))
                 attr.add(link: ChatHistoryLink.peerInfo(link: "", peerId:peerId,action:nil, openChat: false, postId: nil, callback: chatInteraction.openInfo), for: range, color: color.main)
-                phoneLayout = TextViewLayout(.initialize(string: formatPhoneNumber(contact.phoneNumber), color: theme.chat.textColor(isIncoming, object.renderType == .bubble), font: .normal(.text)), maximumNumberOfLines: 1, truncationType: .end, alignment: .left)
+                phoneLayout = TextViewLayout(.initialize(string: ShineSettings.streamerPhone(formatPhoneNumber(contact.phoneNumber)), color: theme.chat.textColor(isIncoming, object.renderType == .bubble), font: .normal(.text)), maximumNumberOfLines: 1, truncationType: .end, alignment: .left)
 
             } else {
                 _ = attr.append(string: name, color: theme.chat.textColor(isIncoming, object.renderType == .bubble), font: .medium(.text))
-                phoneLayout = TextViewLayout(.initialize(string: formatPhoneNumber(contact.phoneNumber), color: theme.chat.textColor(isIncoming, object.renderType == .bubble), font: .normal(.text)), maximumNumberOfLines: 1, truncationType: .end, alignment: .left)
+                phoneLayout = TextViewLayout(.initialize(string: ShineSettings.streamerPhone(formatPhoneNumber(contact.phoneNumber)), color: theme.chat.textColor(isIncoming, object.renderType == .bubble), font: .normal(.text)), maximumNumberOfLines: 1, truncationType: .end, alignment: .left)
             }
             nameLayout = TextViewLayout(attr, maximumNumberOfLines: 1)
             nameLayout.interactions = LinkHooks.shared.globalLinkExecutor()

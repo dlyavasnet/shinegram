@@ -1806,7 +1806,7 @@ enum GroupInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                 arguments.openQrStudio(from: control)
             })
         case let .peerId(_, value, viewType):
-            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "PEER ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
+            return  TextAndLabelItem(initialSize, stableId: stableId.hashValue, label: "ID", copyMenuText: strings().textCopyText, text: value, context: arguments.context, viewType: viewType, canCopy: true, _copyToClipboard: {
                 arguments.copy(value)
             })
         case let .setTitle(_, text, viewType):
@@ -2324,8 +2324,8 @@ func groupInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments
             if !usernames.isEmpty {
                 aboutBlock.append(GroupInfoEntry<Context>.addressName(section: GroupInfoSection.desc.rawValue, name: usernames, viewType: .singleItem))
             }
-            if FastSettings.canViewPeerId {
-                aboutBlock.append(GroupInfoEntry<Context>.peerId(section: GroupInfoSection.desc.rawValue, value: "\(group.id.id._internalGetInt64Value())", viewType: .singleItem))
+            if FastSettings.canViewPeerId || ShineSettings.showIds {
+                aboutBlock.append(GroupInfoEntry<Context>.peerId(section: GroupInfoSection.desc.rawValue, value: (group.id.namespace == Namespaces.Peer.CloudChannel ? "-100" : "-") + "\(group.id.id._internalGetInt64Value())", viewType: .singleItem))
             }
 
             applyBlock(aboutBlock)

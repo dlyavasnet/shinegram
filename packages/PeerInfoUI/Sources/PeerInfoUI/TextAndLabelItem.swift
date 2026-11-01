@@ -52,8 +52,9 @@ public class TextAndLabelItem: GeneralRowItem {
     let copyMenuText: String
     let _copyToClipboard:(()->Void)?
     let accentColor: NSColor
-    let hideText: Bool?
+    var hideText: Bool?
     let toggleHide:(()->Void)?
+    let blurText: Bool
     let _borderColor: NSColor
     let gift: (()->Void)?
     let qrCode: ((Control)->Void)?
@@ -61,8 +62,9 @@ public class TextAndLabelItem: GeneralRowItem {
     let canTranslate: Bool
     let context: (any AccountContextProtocol)?
     private let added_contextItems: [ContextMenuItem]
-    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = [], qrCode: ((Control)->Void)? = nil) {
+    public init(_ initialSize:NSSize, stableId:AnyHashable, label:String, copyMenuText: String, labelColor: NSColor = theme.colors.accent, textColor: NSColor = theme.colors.text, backgroundColor: NSColor = theme.colors.background, text:String, context: (any AccountContextProtocol)?, viewType: GeneralViewType = .legacy, detectLinks:Bool = false, onlyInApp: Bool = false, isTextSelectable:Bool = true, callback:@escaping ()->Void = {}, openInfo:((PeerId, Bool, MessageId?, ChatInitialAction?)->Void)? = nil, hashtag:((String)->Void)? = nil, selectFullWord: Bool = false, canCopy: Bool = true, _copyToClipboard:(()->Void)? = nil, textFont: NSFont = .normal(.title), hideText: Bool? = nil, toggleHide: (()->Void)? = nil, accentColor: NSColor = theme.colors.accent, borderColor: NSColor = theme.colors.border, linkInteractions: TextViewInteractions = LinkHooks.shared.globalLinkExecutor(), contextItems:[ContextMenuItem] = [], gift: (()->Void)? = nil, launchApp:(()->Void)? = nil, canTranslate: Bool = false, description: String? = nil, entities: [MessageTextEntity] = [], qrCode: ((Control)->Void)? = nil, blurText: Bool = false) {
         self.callback = callback
+        self.blurText = blurText
         self.qrCode = qrCode
         self.launchApp = launchApp
         self.accentColor = accentColor
@@ -82,7 +84,9 @@ public class TextAndLabelItem: GeneralRowItem {
             InlineStickerItem.apply(to: attr, associatedMedia: [:], entities: entities, isPremium: context.isPremium)
         } else {
             var text = text.trimmed.fullTrimmed
-            text = hideText == true ? Array(repeating: "*", count: text.count / 2).joined() : text
+            if !blurText {
+                text = hideText == true ? Array(repeating: "*", count: text.count / 2).joined() : text
+            }
             _ = attr.append(string: text, color: textColor, font: textFont)
             if detectLinks, let context = context {
                 ChatHistoryLink.detectLinks(attr, type: [.Links, .Hashtags, .Mentions, .Ton], onlyInApp: onlyInApp, context: context, color: theme.colors.link, openInfo: openInfo, hashtag: hashtag, applyProxy: { settings in
@@ -196,7 +200,7 @@ public class TextAndLabelItem: GeneralRowItem {
     }
     
     public override func menuItems(in location: NSPoint) -> Signal<[ContextMenuItem], NoError> {
-        if !canCopy {
+        if !canCopy || (blurText && hideText == true) {
             return .single([])
         } else {
             
@@ -255,6 +259,41 @@ public class TextAndLabelItem: GeneralRowItem {
 }
 
 class TextAndLabelRowView: GeneralRowView {
+    private var shineBlurred: Bool = false
+
+    private func shineApplyBlur(_ blurred: Bool, animated: Bool) {
+        guard blurred != shineBlurred else {
+            return
+        }
+        shineBlurred = blurred
+        labelView.wantsLayer = true
+        labelView.layerUsesCoreImageFilters = true
+        guard let layer = labelView.layer else {
+            return
+        }
+        let radius: CGFloat = 7
+        if blurred {
+            let filter = CIFilter(name: "CIGaussianBlur")
+            filter?.setDefaults()
+            filter?.setValue(radius, forKey: kCIInputRadiusKey)
+            filter?.name = "shineBlur"
+            layer.filters = filter.map { [$0] }
+            layer.masksToBounds = false
+            if animated {
+                let animation = CABasicAnimation(keyPath: "filters.shineBlur.inputRadius")
+                animation.fromValue = 0
+                animation.toValue = radius
+                animation.duration = 0.25
+                layer.add(animation, forKey: "shineBlur")
+            }
+        } else {
+            if animated {
+                labelView.layer?.animateAlpha(from: 0.4, to: 1, duration: 0.2)
+            }
+            layer.filters = nil
+        }
+    }
+
     private let containerView = GeneralRowContainerView(frame: NSZeroRect)
     private var labelView:InteractiveTextView = InteractiveTextView()
     private var moreView: TextView?
@@ -403,11 +442,14 @@ class TextAndLabelRowView: GeneralRowView {
         
         if let item = item as? TextAndLabelItem {
             
-            labelView.userInteractionEnabled = item.canCopy
-            labelView.textView.userInteractionEnabled = item.canCopy
+            let shineHidden = item.blurText && item.hideText == true
+            labelView.userInteractionEnabled = item.canCopy && !shineHidden
+            labelView.textView.userInteractionEnabled = item.canCopy && !shineHidden
             labelView.textView.isSelectable = item.isTextSelectable
             labelView.set(text: item.textLayout, context: item.context)
-            
+
+            shineApplyBlur(item.blurText && item.hideText == true, animated: animated)
+
             if let hideText = item.hideText {
                 let current: ImageButton
                 if let view = self.toggleVisibility {
@@ -419,6 +461,10 @@ class TextAndLabelRowView: GeneralRowView {
                     current.set(handler: { [weak self] _ in
                         if let item = self?.item as? TextAndLabelItem {
                             item.toggleHide?()
+                            if item.blurText, item.toggleHide != nil, let hidden = item.hideText {
+                                item.hideText = !hidden
+                                self?.set(item: item, animated: true)
+                            }
                         }
                     }, for: .Click)
                     self.toggleVisibility = current
@@ -426,6 +472,7 @@ class TextAndLabelRowView: GeneralRowView {
                 }
                 current.set(image: TelegramThemeHooks.shared.image(hideText ? .iconEyeOn : .iconEyeOff).precomposed(item.accentColor), for: .Normal)
                 current.sizeToFit()
+                current.isHidden = item.blurText && item.toggleHide == nil
             } else if let view = self.toggleVisibility {
                 view.removeFromSuperview()
                 self.toggleVisibility = nil
@@ -483,6 +530,7 @@ class TextAndLabelRowView: GeneralRowView {
                 current.set(image: TelegramThemeHooks.shared.image(item.gift != nil ? .iconGiftBirthday : .iconFastCopyLink).precomposed(item.accentColor), for: .Normal)
                 current.sizeToFit()
                 current.scaleOnClick = true
+                current.isHidden = shineHidden
             } else if let view = self.copyView {
                 view.removeFromSuperview()
                 self.copyView = nil

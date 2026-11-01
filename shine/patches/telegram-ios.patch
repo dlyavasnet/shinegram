@@ -198,10 +198,10 @@ index 00000000..914a39b0
 +}
 diff --git a/submodules/TelegramCore/Sources/Shine/ShineSettings.swift b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
 new file mode 100644
-index 00000000..2e064488
+index 00000000..803b5a7e
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,100 @@
 +import Foundation
 +
 +public final class ShineSettings {
@@ -219,6 +219,8 @@ index 00000000..2e064488
 +        case hideStories = "shine.hideStories"
 +        case showMessageSeconds = "shine.showMessageSeconds"
 +        case showIds = "shine.showIds"
++        case hidePhone = "shine.hidePhone"
++        case hideUsername = "shine.hideUsername"
 +    }
 +
 +    public static let appIconKey = "shine.appIcon"
@@ -290,6 +292,15 @@ index 00000000..2e064488
 +    public static var hideStories: Bool { value(.hideStories) }
 +    public static var showMessageSeconds: Bool { value(.showMessageSeconds) }
 +    public static var showIds: Bool { value(.showIds) }
++    public static var isPhoneHidden: Bool { value(.hidePhone) || value(.streamerMode) }
++    public static var isUsernameHidden: Bool { value(.hideUsername) }
++
++    public static func streamerPhone(_ formatted: String) -> String {
++        guard streamerMode else {
++            return formatted
++        }
++        return String(formatted.map { $0.isNumber ? "•" : $0 })
++    }
 +}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 index 3d99e59d..bba16fd0 100644
