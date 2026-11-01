@@ -11,7 +11,7 @@
 
 ```text
   ┌──────────────────────────────────────────────────────────────┐
-  │ клиент для macOS на исходниках Telegram, с функциями AyuGram │
+  │  Telegram-клиент для macOS с дополнительными функциями       │
   │  читай тихо · смотри анонимно · ничего не теряй              │
   └──────────────────────────────────────────────────────────────┘
 ```
@@ -161,7 +161,6 @@ shinegram/
 
 ```text
 based on   Telegram for macOS · github.com/TelegramMessenger/telegram-macos
-inspired   AyuGram
 license    GNU GPL v2.0
 ```
 
