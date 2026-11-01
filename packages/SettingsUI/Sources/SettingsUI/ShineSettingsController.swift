@@ -57,6 +57,8 @@ private func title(_ key: ShineSettings.Key) -> String {
         return "Don't Mark Stories as Viewed" //TODOLANG
     case .ghostHideMediaListened:
         return "Don't Mark Voice and Video Messages as Played" //TODOLANG
+    case .ghostSendAsScheduled:
+        return "Keep Chats Unread When Sending" //TODOLANG
     case .saveDeletedMessages:
         return "Save Deleted Messages" //TODOLANG
     case .saveEditHistory:
@@ -92,7 +94,7 @@ private func entries(_ state: State, arguments: Arguments) -> [InputDataEntry] {
         index += 1
     }
 
-    entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Ghost mode stops the app from telling others that you are online, typing, have read their messages or watched their stories. Sending a message may still reveal that you are online."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem))) //TODOLANG
+    entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Ghost mode stops the app from telling others that you are online, typing, have read their messages or watched their stories. With \"Keep Chats Unread When Sending\", your messages are sent as scheduled with a \(ShineSettings.ghostScheduleDelay)-second delay, so the server does not mark the chat as read and does not show you online."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem))) //TODOLANG
     index += 1
 
     entries.append(.sectionId(sectionId, type: .normal))

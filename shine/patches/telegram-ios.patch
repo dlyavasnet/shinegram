@@ -11,12 +11,24 @@ index bf906980..a06912b6 100644
      declareEncodable(AutoclearTimeoutMessageAttribute.self, f: { AutoclearTimeoutMessageAttribute(decoder: $0) })
      declareEncodable(CloudChatRemoveChatOperation.self, f: { CloudChatRemoveChatOperation(decoder: $0) })
      declareEncodable(SynchronizePinnedChatsOperation.self, f: { SynchronizePinnedChatsOperation(decoder: $0) })
+diff --git a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+index 9cb3108a..7cb735a7 100644
+--- a/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
++++ b/submodules/TelegramCore/Sources/PendingMessages/EnqueueMessage.swift
+@@ -863,6 +863,7 @@ public func resendMessages(account: Account, messageIds: [MessageId]) -> Signal<
+ }
+ 
+ func enqueueMessages(transaction: Transaction, account: Account, peerId: PeerId, messages: [(Bool, EnqueueMessage)], disableAutoremove: Bool = false, transformGroupingKeysWithPeerId: Bool = false) -> [MessageId?] {
++    let messages = shineGhostScheduledMessages(transaction: transaction, accountPeerId: account.peerId, peerId: peerId, messages: messages)
+     /**
+      * If it is a support account, mark messages as read here as they are
+      * not marked as read when chat is opened.
 diff --git a/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift b/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift
 new file mode 100644
-index 00000000..ed4bedb8
+index 00000000..914a39b0
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Shine/ShineMessageAttributes.swift
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,167 @@
 +import Foundation
 +import Postbox
 +
@@ -155,12 +167,41 @@ index 00000000..ed4bedb8
 +    attributes.append(history)
 +    return updated.withUpdatedAttributes(attributes)
 +}
++
++func shineGhostScheduledMessages(transaction: Transaction, accountPeerId: PeerId, peerId: PeerId, messages: [(Bool, EnqueueMessage)]) -> [(Bool, EnqueueMessage)] {
++    guard ShineSettings.sendAsScheduled else {
++        return messages
++    }
++    if peerId == accountPeerId || peerId.namespace == Namespaces.Peer.SecretChat {
++        return messages
++    }
++    if let user = transaction.getPeer(peerId) as? TelegramUser, user.botInfo != nil {
++        return messages
++    }
++    let scheduleTime = Int32(Date().timeIntervalSince1970) + ShineSettings.ghostScheduleDelay
++    return messages.map { transformed, message in
++        if message.attributes.contains(where: { $0 is OutgoingScheduleInfoMessageAttribute }) {
++            return (transformed, message)
++        }
++        return (transformed, message.withUpdatedAttributes { attributes in
++            return attributes + [OutgoingScheduleInfoMessageAttribute(scheduleTime: scheduleTime, repeatPeriod: nil)]
++        })
++    }
++}
++
++func shineAdjustedScheduleTime(_ scheduleTime: Int32) -> Int32 {
++    if scheduleTime == scheduleWhenOnlineTimestamp {
++        return scheduleTime
++    }
++    let minimum = Int32(Date().timeIntervalSince1970) + 5
++    return max(scheduleTime, minimum)
++}
 diff --git a/submodules/TelegramCore/Sources/Shine/ShineSettings.swift b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
 new file mode 100644
-index 00000000..f45cb67a
+index 00000000..05337ef9
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Shine/ShineSettings.swift
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,69 @@
 +import Foundation
 +
 +public final class ShineSettings {
@@ -170,6 +211,7 @@ index 00000000..f45cb67a
 +        case ghostHideTyping = "shine.ghost.hideTyping"
 +        case ghostHideStoryViews = "shine.ghost.hideStoryViews"
 +        case ghostHideMediaListened = "shine.ghost.hideMediaListened"
++        case ghostSendAsScheduled = "shine.ghost.sendAsScheduled"
 +        case saveDeletedMessages = "shine.saveDeletedMessages"
 +        case saveEditHistory = "shine.saveEditHistory"
 +        case hideSponsoredMessages = "shine.hideSponsoredMessages"
@@ -181,8 +223,22 @@ index 00000000..f45cb67a
 +        return UserDefaults.standard
 +    }
 +
++    public static let ghostScheduleDelay: Int32 = 12
++
++    public static func defaultValue(_ key: Key) -> Bool {
++        switch key {
++        case .saveDeletedMessages:
++            return true
++        default:
++            return false
++        }
++    }
++
 +    public static func value(_ key: Key) -> Bool {
-+        return defaults.bool(forKey: key.rawValue)
++        if let value = defaults.object(forKey: key.rawValue) as? Bool {
++            return value
++        }
++        return defaultValue(key)
 +    }
 +
 +    public static func set(_ key: Key, _ value: Bool) {
@@ -191,7 +247,7 @@ index 00000000..f45cb67a
 +    }
 +
 +    public static var ghostKeys: [Key] {
-+        return [.ghostHideReadReceipts, .ghostHideOnline, .ghostHideTyping, .ghostHideStoryViews, .ghostHideMediaListened]
++        return [.ghostHideReadReceipts, .ghostHideOnline, .ghostHideTyping, .ghostHideStoryViews, .ghostHideMediaListened, .ghostSendAsScheduled]
 +    }
 +
 +    public static var isGhostModeEnabled: Bool {
@@ -210,6 +266,7 @@ index 00000000..f45cb67a
 +    public static var hideTyping: Bool { value(.ghostHideTyping) }
 +    public static var hideStoryViews: Bool { value(.ghostHideStoryViews) }
 +    public static var hideMediaListened: Bool { value(.ghostHideMediaListened) }
++    public static var sendAsScheduled: Bool { value(.ghostSendAsScheduled) }
 +    public static var saveDeletedMessages: Bool { value(.saveDeletedMessages) }
 +    public static var saveEditHistory: Bool { value(.saveEditHistory) }
 +    public static var hideSponsoredMessages: Bool { value(.hideSponsoredMessages) }
@@ -320,6 +377,28 @@ index e38c0f96..4c459438 100644
      guard let inputPeer = apiInputPeer(peer) else {
          return .complete()
      }
+diff --git a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+index a5cf2d90..0e8a3875 100644
+--- a/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
++++ b/submodules/TelegramCore/Sources/State/PendingMessageManager.swift
+@@ -1254,7 +1254,7 @@ public final class PendingMessageManager {
+                         }
+                     } else if let attribute = attribute as? OutgoingScheduleInfoMessageAttribute {
+                         flags |= Int32(1 << 10)
+-                        scheduleTime = attribute.scheduleTime
++                        scheduleTime = shineAdjustedScheduleTime(attribute.scheduleTime)
+                         if let repeatPeriod = attribute.repeatPeriod {
+                             flags |= Int32(1 << 24)
+                             scheduleRepeatPeriod = repeatPeriod
+@@ -1777,7 +1777,7 @@ public final class PendingMessageManager {
+                         }
+                     } else if let attribute = attribute as? OutgoingScheduleInfoMessageAttribute {
+                         flags |= Int32(1 << 10)
+-                        scheduleTime = attribute.scheduleTime
++                        scheduleTime = shineAdjustedScheduleTime(attribute.scheduleTime)
+                         if let repeatPeriod = attribute.repeatPeriod {
+                             flags |= Int32(1 << 24)
+                             scheduleRepeatPeriod = repeatPeriod
 diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
 index b2e65895..d48a67f6 100644
 --- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
